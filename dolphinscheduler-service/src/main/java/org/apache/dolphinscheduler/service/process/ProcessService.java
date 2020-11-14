@@ -16,21 +16,80 @@
  */
 package org.apache.dolphinscheduler.service.process;
 
-import com.cronutils.model.Cron;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.commons.lang.ArrayUtils;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_COMPLEMENT_DATA_END_DATE;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_COMPLEMENT_DATA_START_DATE;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_EMPTY_SUB_PROCESS;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_RECOVER_PROCESS_ID_STRING;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_SUB_PROCESS;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_SUB_PROCESS_DEFINE_ID;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_SUB_PROCESS_PARENT_INSTANCE_ID;
+import static org.apache.dolphinscheduler.common.Constants.YYYY_MM_DD_HH_MM_SS;
+
+import static java.util.stream.Collectors.toSet;
+
 import org.apache.dolphinscheduler.common.Constants;
-import org.apache.dolphinscheduler.common.enums.*;
+import org.apache.dolphinscheduler.common.enums.AuthorizationType;
+import org.apache.dolphinscheduler.common.enums.CommandType;
+import org.apache.dolphinscheduler.common.enums.CycleEnum;
+import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
+import org.apache.dolphinscheduler.common.enums.FailureStrategy;
+import org.apache.dolphinscheduler.common.enums.Flag;
+import org.apache.dolphinscheduler.common.enums.ResourceType;
+import org.apache.dolphinscheduler.common.enums.TaskDependType;
+import org.apache.dolphinscheduler.common.enums.WarningType;
 import org.apache.dolphinscheduler.common.model.DateInterval;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.process.Property;
 import org.apache.dolphinscheduler.common.task.subprocess.SubProcessParameters;
-import org.apache.dolphinscheduler.common.utils.*;
-import org.apache.dolphinscheduler.dao.entity.*;
-import org.apache.dolphinscheduler.dao.mapper.*;
+import org.apache.dolphinscheduler.common.utils.CollectionUtils;
+import org.apache.dolphinscheduler.common.utils.DateUtils;
+import org.apache.dolphinscheduler.common.utils.JSONUtils;
+import org.apache.dolphinscheduler.common.utils.ParameterUtils;
+import org.apache.dolphinscheduler.common.utils.StringUtils;
+import org.apache.dolphinscheduler.dao.entity.Command;
+import org.apache.dolphinscheduler.dao.entity.CycleDependency;
+import org.apache.dolphinscheduler.dao.entity.DataSource;
+import org.apache.dolphinscheduler.dao.entity.ErrorCommand;
+import org.apache.dolphinscheduler.dao.entity.ProcessData;
+import org.apache.dolphinscheduler.dao.entity.ProcessDefinition;
+import org.apache.dolphinscheduler.dao.entity.ProcessInstance;
+import org.apache.dolphinscheduler.dao.entity.ProcessInstanceMap;
+import org.apache.dolphinscheduler.dao.entity.Project;
+import org.apache.dolphinscheduler.dao.entity.Resource;
+import org.apache.dolphinscheduler.dao.entity.Schedule;
+import org.apache.dolphinscheduler.dao.entity.TaskInstance;
+import org.apache.dolphinscheduler.dao.entity.Tenant;
+import org.apache.dolphinscheduler.dao.entity.UdfFunc;
+import org.apache.dolphinscheduler.dao.entity.User;
+import org.apache.dolphinscheduler.dao.mapper.CommandMapper;
+import org.apache.dolphinscheduler.dao.mapper.DataSourceMapper;
+import org.apache.dolphinscheduler.dao.mapper.ErrorCommandMapper;
+import org.apache.dolphinscheduler.dao.mapper.ProcessDefinitionMapper;
+import org.apache.dolphinscheduler.dao.mapper.ProcessInstanceMapMapper;
+import org.apache.dolphinscheduler.dao.mapper.ProcessInstanceMapper;
+import org.apache.dolphinscheduler.dao.mapper.ProjectMapper;
+import org.apache.dolphinscheduler.dao.mapper.ResourceMapper;
+import org.apache.dolphinscheduler.dao.mapper.ScheduleMapper;
+import org.apache.dolphinscheduler.dao.mapper.TaskInstanceMapper;
+import org.apache.dolphinscheduler.dao.mapper.TenantMapper;
+import org.apache.dolphinscheduler.dao.mapper.UdfFuncMapper;
+import org.apache.dolphinscheduler.dao.mapper.UserMapper;
 import org.apache.dolphinscheduler.remote.utils.Host;
 import org.apache.dolphinscheduler.service.log.LogClientService;
 import org.apache.dolphinscheduler.service.quartz.cron.CronUtils;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.quartz.CronExpression;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,12 +97,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.File;
-import java.util.*;
-import java.util.stream.Collectors;
-
-import static java.util.stream.Collectors.toSet;
-import static org.apache.dolphinscheduler.common.Constants.*;
+import com.cronutils.model.Cron;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * process relative dao that some mappers in this.
@@ -54,7 +109,8 @@ public class ProcessService {
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
     private final int[] stateArray = new int[]{ExecutionStatus.SUBMITTED_SUCCESS.ordinal(),
-            ExecutionStatus.RUNNING_EXEUTION.ordinal(),
+            ExecutionStatus.RUNNING_EXECUTION.ordinal(),
+            ExecutionStatus.DELAY_EXECUTION.ordinal(),
             ExecutionStatus.READY_PAUSE.ordinal(),
             ExecutionStatus.READY_STOP.ordinal()};
 
@@ -107,7 +163,7 @@ public class ProcessService {
      * @param command found command
      * @return process instance
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = RuntimeException.class)
     public ProcessInstance handleCommand(Logger logger, String host, int validThreadNum, Command command) {
         ProcessInstance processInstance = constructProcessInstance(command, host);
         //cannot construct process instance, return null;
@@ -133,7 +189,7 @@ public class ProcessService {
      * @param command command
      * @param message message
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = RuntimeException.class)
     public void moveToErrorCommand(Command command, String message) {
         ErrorCommand errorCommand = new ErrorCommand(command, message);
         this.errorCommandMapper.insert(errorCommand);
@@ -454,7 +510,7 @@ public class ProcessService {
                                                        Command command,
                                                        Map<String, String> cmdParam){
         ProcessInstance processInstance = new ProcessInstance(processDefinition);
-        processInstance.setState(ExecutionStatus.RUNNING_EXEUTION);
+        processInstance.setState(ExecutionStatus.RUNNING_EXECUTION);
         processInstance.setRecovery(Flag.NO);
         processInstance.setStartTime(new Date());
         processInstance.setRunTimes(1);
@@ -616,7 +672,7 @@ public class ProcessService {
         }
         processInstance.setHost(host);
 
-        ExecutionStatus runStatus = ExecutionStatus.RUNNING_EXEUTION;
+        ExecutionStatus runStatus = ExecutionStatus.RUNNING_EXECUTION;
         int runTime = processInstance.getRunTimes();
         switch (commandType){
             case START_PROCESS:
@@ -827,7 +883,7 @@ public class ProcessService {
      * @param taskInstance taskInstance
      * @return task instance
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = RuntimeException.class)
     public TaskInstance submitTask(TaskInstance taskInstance){
         ProcessInstance processInstance = this.findProcessInstanceDetailById(taskInstance.getProcessInstanceId());
         logger.info("start submit task : {}, instance id:{}, state: {}",
@@ -840,7 +896,7 @@ public class ProcessService {
             return task;
         }
         if(!task.getState().typeIsFinished()){
-            createSubWorkProcessCommand(processInstance, task);
+            createSubWorkProcess(processInstance, task);
         }
 
         logger.info("end submit task to db successfully:{} state:{} complete, instance id:{} state: {}  ",
@@ -850,20 +906,22 @@ public class ProcessService {
 
     /**
      * set work process instance map
+     * consider o
+     * repeat running  does not generate new sub process instance
+     * set map {parent instance id, task instance id, 0(child instance id)}
      * @param parentInstance parentInstance
      * @param parentTask parentTask
      * @return process instance map
      */
     private ProcessInstanceMap setProcessInstanceMap(ProcessInstance parentInstance, TaskInstance parentTask){
         ProcessInstanceMap processMap = findWorkProcessMapByParent(parentInstance.getId(), parentTask.getId());
-        if(processMap != null){
+        if (processMap != null) {
             return processMap;
-        }else if(parentInstance.getCommandType() == CommandType.REPEAT_RUNNING
-                || parentInstance.isComplementData()){
+        }
+        if (parentInstance.getCommandType() == CommandType.REPEAT_RUNNING) {
             // update current task id to map
-            // repeat running  does not generate new sub process instance
             processMap = findPreviousTaskProcessMap(parentInstance, parentTask);
-            if(processMap!= null){
+            if (processMap != null) {
                 processMap.setParentTaskInstanceId(parentTask.getId());
                 updateWorkProcessInstanceMap(processMap);
                 return processMap;
@@ -888,11 +946,11 @@ public class ProcessService {
 
         Integer preTaskId = 0;
         List<TaskInstance> preTaskList = this.findPreviousTaskListByWorkProcessId(parentProcessInstance.getId());
-        for(TaskInstance task : preTaskList){
-            if(task.getName().equals(parentTask.getName())){
+        for (TaskInstance task : preTaskList) {
+            if (task.getName().equals(parentTask.getName())) {
                 preTaskId = task.getId();
                 ProcessInstanceMap map = findWorkProcessMapByParent(parentProcessInstance.getId(), preTaskId);
-                if(map!=null){
+                if (map != null) {
                     return map;
                 }
             }
@@ -904,66 +962,111 @@ public class ProcessService {
 
     /**
      * create sub work process command
+     *
      * @param parentProcessInstance parentProcessInstance
-     * @param task task
+     * @param task                  task
      */
-    private void createSubWorkProcessCommand(ProcessInstance parentProcessInstance,
-                                             TaskInstance task){
-        if(!task.isSubProcess()){
+    public void createSubWorkProcess(ProcessInstance parentProcessInstance, TaskInstance task) {
+        if (!task.isSubProcess()) {
             return;
         }
-        ProcessInstanceMap instanceMap = setProcessInstanceMap(parentProcessInstance, task);
-        TaskNode taskNode = JSONUtils.parseObject(task.getTaskJson(), TaskNode.class);
-        Map<String, String> subProcessParam = JSONUtils.toMap(taskNode.getParams());
-        Integer childDefineId = Integer.parseInt(subProcessParam.get(Constants.CMDPARAM_SUB_PROCESS_DEFINE_ID));
-
-        ProcessInstance childInstance = findSubProcessInstance(parentProcessInstance.getId(), task.getId());
-
-        CommandType fatherType = parentProcessInstance.getCommandType();
-        CommandType commandType = fatherType;
-        if(childInstance == null){
-            String fatherHistoryCommand = parentProcessInstance.getHistoryCmd();
-            // sub process must begin with schedule/complement data
-            // if father begin with scheduler/complement data
-            if(fatherHistoryCommand.startsWith(CommandType.SCHEDULER.toString()) ||
-                    fatherHistoryCommand.startsWith(CommandType.COMPLEMENT_DATA.toString())){
-                commandType = CommandType.valueOf(fatherHistoryCommand.split(Constants.COMMA)[0]);
-            }
+        //check create sub work flow firstly
+        ProcessInstanceMap instanceMap = findWorkProcessMapByParent(parentProcessInstance.getId(), task.getId());
+        if (null != instanceMap && CommandType.RECOVER_TOLERANCE_FAULT_PROCESS == parentProcessInstance.getCommandType()) {
+            // recover failover tolerance would not create a new command when the sub command already have been created
+            return;
         }
-
-        if(childInstance != null){
-            childInstance.setState(ExecutionStatus.SUBMITTED_SUCCESS);
-            updateProcessInstance(childInstance);
+        instanceMap = setProcessInstanceMap(parentProcessInstance, task);
+        ProcessInstance childInstance = null;
+        if (instanceMap.getProcessInstanceId() != 0) {
+            childInstance = findProcessInstanceById(instanceMap.getProcessInstanceId());
         }
+        Command subProcessCommand = createSubProcessCommand(parentProcessInstance, childInstance, instanceMap, task);
+        updateSubProcessDefinitionByParent(parentProcessInstance, subProcessCommand.getProcessDefinitionId());
+        initSubInstanceState(childInstance);
+        createCommand(subProcessCommand);
+        logger.info("sub process command created: {} ", subProcessCommand);
+    }
+
+    /**
+     * complement data needs transform parent parameter to child.
+     * @param instanceMap
+     * @param parentProcessInstance
+     * @return
+     */
+    private String getSubWorkFlowParam(ProcessInstanceMap instanceMap, ProcessInstance parentProcessInstance) {
         // set sub work process command
         String processMapStr = JSONUtils.toJsonString(instanceMap);
         Map<String, String> cmdParam = JSONUtils.toMap(processMapStr);
-
-        if(commandType == CommandType.COMPLEMENT_DATA ||
-                (childInstance != null && childInstance.isComplementData())){
+        if (parentProcessInstance.isComplementData()) {
             Map<String, String> parentParam = JSONUtils.toMap(parentProcessInstance.getCommandParam());
-            String endTime =  parentParam.get(CMDPARAM_COMPLEMENT_DATA_END_DATE);
-            String startTime =  parentParam.get(CMDPARAM_COMPLEMENT_DATA_START_DATE);
+            String endTime = parentParam.get(CMDPARAM_COMPLEMENT_DATA_END_DATE);
+            String startTime = parentParam.get(CMDPARAM_COMPLEMENT_DATA_START_DATE);
             cmdParam.put(CMDPARAM_COMPLEMENT_DATA_END_DATE, endTime);
             cmdParam.put(CMDPARAM_COMPLEMENT_DATA_START_DATE, startTime);
             processMapStr = JSONUtils.toJsonString(cmdParam);
         }
+        return processMapStr;
+    }
 
-        updateSubProcessDefinitionByParent(parentProcessInstance, childDefineId);
+    /**
+     * create sub work process command
+     * @param parentProcessInstance
+     * @param childInstance
+     * @param instanceMap
+     * @param task
+     */
+    public Command createSubProcessCommand(ProcessInstance parentProcessInstance,
+                                           ProcessInstance childInstance,
+                                           ProcessInstanceMap instanceMap,
+                                           TaskInstance task) {
+        CommandType commandType = getSubCommandType(parentProcessInstance, childInstance);
+        TaskNode taskNode = JSONUtils.parseObject(task.getTaskJson(), TaskNode.class);
+        Map<String, String> subProcessParam = JSONUtils.toMap(taskNode.getParams());
+        Integer childDefineId = Integer.parseInt(subProcessParam.get(Constants.CMDPARAM_SUB_PROCESS_DEFINE_ID));
+        String processParam = getSubWorkFlowParam(instanceMap, parentProcessInstance);
 
-        Command command = new Command();
-        command.setWarningType(parentProcessInstance.getWarningType());
-        command.setWarningGroupId(parentProcessInstance.getWarningGroupId());
-        command.setFailureStrategy(parentProcessInstance.getFailureStrategy());
-        command.setProcessDefinitionId(childDefineId);
-        command.setScheduleTime(parentProcessInstance.getScheduleTime());
-        command.setExecutorId(parentProcessInstance.getExecutorId());
-        command.setCommandParam(processMapStr);
-        command.setCommandType(commandType);
-        command.setProcessInstancePriority(parentProcessInstance.getProcessInstancePriority());
-        command.setWorkerGroup(parentProcessInstance.getWorkerGroup());
-        createCommand(command);
-        logger.info("sub process command created: {} ", command.toString());
+        return new Command(
+                commandType,
+                TaskDependType.TASK_POST,
+                parentProcessInstance.getFailureStrategy(),
+                parentProcessInstance.getExecutorId(),
+                childDefineId,
+                processParam,
+                parentProcessInstance.getWarningType(),
+                parentProcessInstance.getWarningGroupId(),
+                parentProcessInstance.getScheduleTime(),
+                parentProcessInstance.getProcessInstancePriority()
+        );
+    }
+
+    /**
+     * initialize sub work flow state
+     * child instance state would be initialized when 'recovery from pause/stop/failure'
+     * @param childInstance
+     */
+    private void initSubInstanceState(ProcessInstance childInstance) {
+        if (childInstance != null) {
+            childInstance.setState(ExecutionStatus.RUNNING_EXECUTION);
+            updateProcessInstance(childInstance);
+        }
+    }
+
+    /**
+     * get sub work flow command type
+     * child instance exist: child command = fatherCommand
+     * child instance not exists: child command = fatherCommand[0]
+     *
+     * @param parentProcessInstance
+     * @return
+     */
+    private CommandType getSubCommandType(ProcessInstance parentProcessInstance, ProcessInstance childInstance) {
+        CommandType commandType = parentProcessInstance.getCommandType();
+        if (childInstance == null) {
+            String fatherHistoryCommand = parentProcessInstance.getHistoryCmd();
+            commandType = CommandType.valueOf(fatherHistoryCommand.split(Constants.COMMA)[0]);
+        }
+        return commandType;
     }
 
     /**
@@ -1004,8 +1107,9 @@ public class ProcessService {
                     if(taskInstance.getState() != ExecutionStatus.NEED_FAULT_TOLERANCE){
                         taskInstance.setRetryTimes(taskInstance.getRetryTimes() + 1 );
                     }
+                    taskInstance.setSubmitTime(null);
+                    taskInstance.setStartTime(null);
                     taskInstance.setEndTime(null);
-                    taskInstance.setStartTime(new Date());
                     taskInstance.setFlag(Flag.YES);
                     taskInstance.setHost(null);
                     taskInstance.setId(0);
@@ -1015,7 +1119,12 @@ public class ProcessService {
         taskInstance.setExecutorId(processInstance.getExecutorId());
         taskInstance.setProcessInstancePriority(processInstance.getProcessInstancePriority());
         taskInstance.setState(getSubmitTaskState(taskInstance, processInstanceState));
-        taskInstance.setSubmitTime(new Date());
+        if (taskInstance.getSubmitTime() == null) {
+            taskInstance.setSubmitTime(new Date());
+        }
+        if (taskInstance.getFirstSubmitTime() == null) {
+            taskInstance.setFirstSubmitTime(taskInstance.getSubmitTime());
+        }
         boolean saveResult = saveTaskInstance(taskInstance);
         if(!saveResult){
             return null;
@@ -1065,10 +1174,11 @@ public class ProcessService {
     public ExecutionStatus getSubmitTaskState(TaskInstance taskInstance, ExecutionStatus processInstanceState){
         ExecutionStatus state = taskInstance.getState();
         if(
-                // running or killed
+                // running, delayed or killed
                 // the task already exists in task queue
                 // return state
-                state == ExecutionStatus.RUNNING_EXEUTION
+                state == ExecutionStatus.RUNNING_EXECUTION
+                        || state == ExecutionStatus.DELAY_EXECUTION
                         || state == ExecutionStatus.KILL
                         || checkTaskExistsInTaskQueue(taskInstance)
                 ){
@@ -1401,17 +1511,20 @@ public class ProcessService {
      * @param state state
      * @param endTime endTime
      * @param taskInstId taskInstId
+     * @param varPool varPool
      */
     public void changeTaskState(ExecutionStatus state,
                                 Date endTime,
                                 int processId,
                                 String appIds,
-                                int taskInstId) {
+                                int taskInstId,
+                                String varPool) {
         TaskInstance taskInstance = taskInstanceMapper.selectById(taskInstId);
         taskInstance.setPid(processId);
         taskInstance.setAppLink(appIds);
         taskInstance.setState(state);
         taskInstance.setEndTime(endTime);
+        taskInstance.setVarPool(varPool);
         saveTaskInstance(taskInstance);
     }
 
@@ -1429,20 +1542,6 @@ public class ProcessService {
             result.add(String.valueOf(intVar));
         }
         return result;
-    }
-
-    /**
-     * update pid and app links field by task instance id
-     * @param taskInstId taskInstId
-     * @param pid pid
-     * @param appLinks appLinks
-     */
-    public void updatePidByTaskInstId(int taskInstId, int pid,String appLinks) {
-
-        TaskInstance taskInstance = taskInstanceMapper.selectById(taskInstId);
-        taskInstance.setPid(pid);
-        taskInstance.setAppLink(appLinks);
-        saveTaskInstance(taskInstance);
     }
 
     /**
@@ -1477,7 +1576,7 @@ public class ProcessService {
      * process need failover process instance
      * @param processInstance processInstance
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = RuntimeException.class)
     public void processNeedFailoverProcessInstances(ProcessInstance processInstance){
         //1 update processInstance host is null
         processInstance.setHost(Constants.NULL);
@@ -1591,7 +1690,7 @@ public class ProcessService {
      */
     public List<CycleDependency> getCycleDependencies(int masterId,int[] ids,Date scheduledFireTime) throws Exception {
         List<CycleDependency> cycleDependencyList =  new ArrayList<CycleDependency>();
-        if(ArrayUtils.isEmpty(ids)){
+        if (ids == null || ids.length == 0) {
             logger.warn("ids[] is empty!is invalid!");
             return cycleDependencyList;
         }
@@ -1775,7 +1874,7 @@ public class ProcessService {
     public <T> List<T> listUnauthorized(int userId,T[] needChecks,AuthorizationType authorizationType){
         List<T> resultList = new ArrayList<T>();
 
-        if (!ArrayUtils.isEmpty(needChecks)) {
+        if (Objects.nonNull(needChecks) && needChecks.length > 0) {
             Set<T> originResSet = new HashSet<T>(Arrays.asList(needChecks));
 
             switch (authorizationType){

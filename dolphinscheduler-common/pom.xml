@@ -33,11 +33,6 @@
 	</properties>
 	<dependencies>
 		<dependency>
-			<groupId>org.apache.dolphinscheduler</groupId>
-			<artifactId>dolphinscheduler-plugin-api</artifactId>
-		</dependency>
-
-		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
 		</dependency>
@@ -578,6 +573,11 @@
 					<groupId>com.microsoft.azure</groupId>
 				</exclusion>
 			</exclusions>
+		</dependency>
+
+		<dependency>
+			<groupId>com.facebook.presto</groupId>
+			<artifactId>presto-jdbc</artifactId>
 		</dependency>
 
         <dependency>

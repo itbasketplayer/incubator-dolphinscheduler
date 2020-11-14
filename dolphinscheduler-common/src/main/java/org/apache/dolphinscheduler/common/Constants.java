@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.dolphinscheduler.common;
 
 import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
@@ -27,7 +28,7 @@ import java.util.regex.Pattern;
 public final class Constants {
 
     private Constants() {
-        throw new IllegalStateException("Constants class");
+        throw new UnsupportedOperationException("Construct Constants");
     }
 
     /**
@@ -138,7 +139,7 @@ public final class Constants {
     /**
      * python home
      */
-    public static final String PYTHON_HOME="PYTHON_HOME";
+    public static final String PYTHON_HOME = "PYTHON_HOME";
 
     /**
      * resource.view.suffixs
@@ -266,6 +267,10 @@ public final class Constants {
     public static final String YYYYMMDDHHMMSS = "yyyyMMddHHmmss";
 
     /**
+     * date format of yyyyMMddHHmmssSSS
+     */
+    public static final String YYYYMMDDHHMMSSSSS = "yyyyMMddHHmmssSSS";
+    /**
      * http connect time out
      */
     public static final int HTTP_CONNECT_TIMEOUT = 60 * 1000;
@@ -366,7 +371,6 @@ public final class Constants {
     public static final double DEFAULT_WORKER_RESERVED_MEMORY = OSUtils.totalMemorySize() / 10;
 
 
-
     /**
      * default log cache rows num,output when reach the number
      */
@@ -383,12 +387,16 @@ public final class Constants {
      */
     public static final int SEC_2_MINUTES_TIME_UNIT = 60;
 
-
     /***
      *
      * rpc port
      */
     public static final int RPC_PORT = 50051;
+
+    /***
+     * alert rpc port
+     */
+    public static final int ALERT_RPC_PORT = 50052;
 
     /**
      * forbid running task
@@ -752,7 +760,7 @@ public final class Constants {
 
 
     /**
-     *  preview schedule execute count
+     * preview schedule execute count
      */
     public static final int PREVIEW_SCHEDULE_EXECUTE_COUNT = 5;
 
@@ -831,7 +839,8 @@ public final class Constants {
 
     public static final int[] NOT_TERMINATED_STATES = new int[]{
             ExecutionStatus.SUBMITTED_SUCCESS.ordinal(),
-            ExecutionStatus.RUNNING_EXEUTION.ordinal(),
+            ExecutionStatus.RUNNING_EXECUTION.ordinal(),
+            ExecutionStatus.DELAY_EXECUTION.ordinal(),
             ExecutionStatus.READY_PAUSE.ordinal(),
             ExecutionStatus.READY_STOP.ordinal(),
             ExecutionStatus.NEED_FAULT_TOLERANCE.ordinal(),
@@ -839,10 +848,7 @@ public final class Constants {
             ExecutionStatus.WAITTING_DEPEND.ordinal()
     };
 
-    /**
-     * status
-     */
-    public static final String STATUS = "status";
+
 
     /**
      * message
@@ -852,18 +858,17 @@ public final class Constants {
     /**
      * data total
      */
-    public  static final String COUNT = "count";
+    public static final String COUNT = "count";
 
     /**
      * page size
      */
-    public  static final String PAGE_SIZE = "pageSize";
+    public static final String PAGE_SIZE = "pageSize";
 
     /**
      * current page no
      */
-    public  static final String PAGE_NUMBER = "pageNo";
-
+    public static final String PAGE_NUMBER = "pageNo";
 
 
     /**
@@ -898,6 +903,7 @@ public final class Constants {
     public static final String COM_ORACLE_JDBC_DRIVER = "oracle.jdbc.driver.OracleDriver";
     public static final String COM_SQLSERVER_JDBC_DRIVER = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
     public static final String COM_DB2_JDBC_DRIVER = "com.ibm.db2.jcc.DB2Driver";
+    public static final String COM_PRESTO_JDBC_DRIVER = "com.facebook.presto.jdbc.PrestoDriver";
 
     /**
      * database type
@@ -910,6 +916,7 @@ public final class Constants {
     public static final String ORACLE = "ORACLE";
     public static final String SQLSERVER = "SQLSERVER";
     public static final String DB2 = "DB2";
+    public static final String PRESTO = "PRESTO";
 
     /**
      * jdbc url
@@ -922,6 +929,7 @@ public final class Constants {
     public static final String JDBC_ORACLE_SERVICE_NAME = "jdbc:oracle:thin:@//";
     public static final String JDBC_SQLSERVER = "jdbc:sqlserver://";
     public static final String JDBC_DB2 = "jdbc:db2://";
+    public static final String JDBC_PRESTO = "jdbc:presto://";
 
 
     public static final String ADDRESS = "address";
@@ -963,11 +971,11 @@ public final class Constants {
     /**
      * authorize writable perm
      */
-    public static final int AUTHORIZE_WRITABLE_PERM=7;
+    public static final int AUTHORIZE_WRITABLE_PERM = 7;
     /**
      * authorize readable perm
      */
-    public static final int AUTHORIZE_READABLE_PERM=4;
+    public static final int AUTHORIZE_READABLE_PERM = 4;
 
 
     /**
@@ -975,8 +983,19 @@ public final class Constants {
      */
     public static final String PLUGIN_JAR_SUFFIX = ".jar";
 
+    /**
+     * status
+     */
+    public static final String STATUS = "status";
     public static final int NORAML_NODE_STATUS = 0;
     public static final int ABNORMAL_NODE_STATUS = 1;
+
+    public static final String START_TIME = "start time";
+    public static final String END_TIME = "end time";
+    /**
+     * system line separator
+     */
+    public static final String SYSTEM_LINE_SEPARATOR = System.getProperty("line.separator");
 
     /**
      * net system properties
@@ -984,4 +1003,17 @@ public final class Constants {
     public static final String DOLPHIN_SCHEDULER_PREFERRED_NETWORK_INTERFACE = "dolphin.scheduler.network.interface.preferred";
 
 
+    public static final String EXCEL_SUFFIX_XLS = ".xls";
+
+    /**
+     * datasource encryption salt
+     */
+    public static final String DATASOURCE_ENCRYPTION_SALT_DEFAULT = "!@#$%^&*";
+    public static final String DATASOURCE_ENCRYPTION_ENABLE = "datasource.encryption.enable";
+    public static final String DATASOURCE_ENCRYPTION_SALT = "datasource.encryption.salt";
+
+    /**
+     * Network IP gets priority, default inner outer
+     */
+    public static final String NETWORK_PRIORITY_STRATEGY = "dolphin.scheduler.network.priority.strategy";
 }

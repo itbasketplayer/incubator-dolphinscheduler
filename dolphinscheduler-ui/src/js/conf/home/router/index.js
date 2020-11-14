@@ -58,6 +58,14 @@ const router = new Router({
           }
         },
         {
+          path: '/projects/kinship',
+          name: 'projects-kinship',
+          component: resolve => require(['../pages/projects/pages/kinship/index'], resolve),
+          meta: {
+            title: `${i18n.$t('Kinship')}`
+          }
+        },
+        {
           path: '/projects/list',
           name: 'projects-list',
           component: resolve => require(['../pages/projects/pages/list/index'], resolve),
@@ -388,6 +396,14 @@ const router = new Router({
           component: resolve => require(['../pages/security/pages/token/index'], resolve),
           meta: {
             title: `${i18n.$t('Token manage')}`
+          }
+        },
+        {
+          path: '/security/Alarm-plugin-example',
+          name: 'Alarm-plugin-example',
+          component: resolve => require(['../pages/security/pages/alarmPluginExample/index'], resolve),
+          meta: {
+            title: `${i18n.$t('Alarm plugin example')}`
           }
         }
       ]
